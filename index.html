@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,minimum-scale=1.0,user-scalable=no,viewport-fit=cover">
+<meta name="format-detection" content="telephone=no,email=no,address=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="摇一摇">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0a1220">
+<title>摇一摇随机数</title>
+<link rel="manifest" id="manifestLink">
+<style>
+  *{
+    margin:0;padding:0;box-sizing:border-box;
+    -webkit-tap-highlight-color:transparent;
+    -webkit-touch-callout:none;
+  }
+  html,body{width:100%;height:100%;overflow:hidden;}
+  body{
+    background-color:#0a1220;
+    background-image:radial-gradient(circle at 50% 0%,#16294a 0%,#0a1220 55%,#070d17 100%);
+    color:#e8f1ff;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+    -webkit-user-select:none;user-select:none;
+    -webkit-font-smoothing:antialiased;
+    position:relative;
+    height:100vh;height:100dvh;
+    touch-action:none;
+  }
+
+  /* ============ 数字舞台 ============ */
+  .stage{
+    position:absolute;inset:0;
+    display:flex;align-items:center;justify-content:center;
+    gap:clamp(6px,2.2vw,22px);
+    padding:max(8px,env(safe-area-inset-top)) 10px 52px;
+  }
+
+  .digit{
+    flex:1 1 0;min-width:0;height:100%;
+    display:flex;align-items:center;justify-content:center;
+    overflow:hidden;
+  }
+
+  .num{
+    display:block;
+    font-family:"DIN Alternate","Bahnschrift","SF Pro Display",-apple-system,sans-serif;
+    font-weight:800;
+    font-variant-numeric:tabular-nums;
+    line-height:1;
+    color:#22395a;
+    transform-origin:center center;
+    transform:scaleY(var(--sy,1));
+    transition:color .3s,text-shadow .3s;
+    will-change:transform;
+  }
+
+  .digit.spinning .num{
+    color:#ffd24a;
+    text-shadow:
+      0 0 24px rgba(255,210,74,0.95),
+      0 0 80px rgba(255,210,74,0.55);
+  }
+
+  .digit.done .num{
+    color:#54d2ff;
+    text-shadow:
+      0 0 24px rgba(84,210,255,0.95),
+      0 0 80px rgba(84,210,255,0.55);
+  }
+
+  @keyframes pop{
+    0%  {transform:scaleY(var(--sy,1)) scale(1);}
+    42% {transform:scaleY(var(--sy,1)) scale(1.08);}
+    100%{transform:scaleY(var(--sy,1)) scale(1);}
+  }
+  .num.pop{
+    animation:pop .5s cubic-bezier(.22,.86,.32,1);
+  }
+
+  /* ============ 提示 ============ */
+  .hint{
+    position:absolute;
+    left:0;right:0;
+    bottom:max(18px,env(safe-area-inset-bottom));
+    text-align:center;
+    font-size:13px;
+    font-weight:700;
+    letter-spacing:3px;
+    color:#3d5878;
+    pointer-events:none;
+    transition:color .3s;
+  }
+  .hint.active{color:#8fc9ff;}
+
+  /* ============ 设置按钮 ============ */
+  .gear{
+    position:absolute;
+    right:max(14px,env(safe-area-inset-right));
+    top:max(14px,env(safe-area-inset-top));
+    width:44px;height:44px;
+    border:1px solid rgba(80,130,200,0.28);
+    border-radius:14px;
+    background:rgba(20,34,58,0.68);
+    color:#8fc9ff;
+    font-size:20px;
+    cursor:pointer;
+    z-index:10;
+    transition:background .18s,transform .12s;
+  }
+  .gear:active{
+    transform:scale(0.95);
+    background:rgba(30,50,80,0.92);
+  }
+
+  /* ============ 设置面板 ============ */
+  .mask{
+    position:fixed;inset:0;
+    background:rgba(4,8,16,0.64);
+    opacity:0;pointer-events:none;
+    transition:opacity .24s;
+    z-index:20;
+  }
+  .mask.show{opacity:1;pointer-events:auto;}
+
+  .sheet{
+    position:fixed;left:0;right:0;bottom:0;
+    background:linear-gradient(180deg,#132542 0%,#0c1728 100%);
+    border-top:1px solid rgba(84,210,255,0.22);
+    border-radius:22px 22px 0 0;
+    padding:16px 20px max(20px,env(safe-area-inset-bottom));
+    transform:translateY(102%);
+    transition:transform .30s cubic-bezier(.24,.86,.32,1);
+    z-index:21;
+    box-shadow:0 -12px 40px rgba(0,0,0,0.55);
+  }
+  .sheet.show{transform:translateY(0);}
+
+  .sheet-head{
+    display:flex;align-items:center;justify-content:space-between;
+    margin-bottom:14px;
+  }
+  .sheet-head span{
+    font-size:15px;font-weight:800;
+    color:#8fc9ff;letter-spacing:2px;
+  }
+  .sheet-head button{
+    border:none;background:rgba(84,210,255,0.14);
+    color:#54d2ff;
+    font-family:inherit;font-size:13px;font-weight:700;
+    letter-spacing:1px;
+    padding:7px 16px;border-radius:10px;
+    cursor:pointer;
+  }
+
+  .row{
+    display:flex;align-items:center;gap:12px;
+    padding:9px 0;
+  }
+  .row label{
+    flex:0 0 92px;
+    font-size:13px;color:#8fb0d8;
+    letter-spacing:.5px;
+  }
+  .row input[type=range]{
+    flex:1 1 auto;min-width:0;
+    -webkit-appearance:none;appearance:none;
+    height:30px;background:transparent;outline:none;
+  }
+  .row input[type=range]::-webkit-slider-runnable-track{
+    height:6px;border-radius:3px;
+    background:linear-gradient(90deg,#2f6fb5,#54d2ff);
+  }
+  .row input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;
+    width:24px;height:24px;border-radius:50%;
+    background:#eaf6ff;border:3px solid #54d2ff;
+    margin-top:-9px;
+    box-shadow:0 2px 10px rgba(84,210,255,0.7);
+  }
+  .row input[type=range]::-moz-range-track{
+    height:6px;border-radius:3px;background:#2f6fb5;
+  }
+  .row input[type=range]::-moz-range-thumb{
+    width:20px;height:20px;border-radius:50%;
+    background:#eaf6ff;border:3px solid #54d2ff;
+  }
+  .row b{
+    flex:0 0 60px;
+    text-align:right;
+    font-size:16px;font-weight:800;
+    color:#54d2ff;
+    font-variant-numeric:tabular-nums;
+    font-family:"DIN Alternate","Bahnschrift",sans-serif;
+  }
+
+  .tip{
+    margin-top:8px;
+    font-size:11.5px;line-height:1.7;
+    color:#4e6a8e;
+    letter-spacing:.3px;
+  }
+
+  /* ============ 提示条 ============ */
+  .toast{
+    position:fixed;
+    left:50%;bottom:96px;
+    transform:translate(-50%,14px);
+    background:rgba(20,34,58,0.94);
+    border:1px solid rgba(84,210,255,0.35);
+    color:#8fc9ff;
+    font-size:12.5px;
+    letter-spacing:.6px;
+    padding:9px 18px;
+    border-radius:12px;
+    opacity:0;pointer-events:none;
+    transition:opacity .25s,transform .25s;
+    z-index:30;
+    white-space:nowrap;
+  }
+  .toast.show{opacity:1;transform:translate(-50%,0);}
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <div class="digit" id="d1"><span class="num" id="n1">5</span></div>
+  <div class="digit" id="d2"><span class="num" id="n2">7</span></div>
+</div>
+
+<div class="hint" id="hint">轻触屏幕 开启摇一摇</div>
+<button class="gear" id="gear">⚙</button>
+
+<div class="mask" id="mask"></div>
+
+<div class="sheet" id="sheet">
+  <div class="sheet-head">
+    <span>设 置</span>
+    <button id="doneBtn">完 成</button>
+  </div>
+
+  <div class="row">
+    <label>摇号时长</label>
+    <input type="range" id="durRange" min="1" max="10" step="0.5" value="3">
+    <b id="durVal">3.0s</b>
+  </div>
+
+  <div class="row">
+    <label>灵敏度</label>
+    <input type="range" id="senRange" min="1" max="10" step="1" value="6">
+    <b id="senVal">6</b>
+  </div>
+
+  <p class="tip">
+    灵敏度越高，越容易通过摇晃手机触发摇号。<br>
+    首次使用请轻触屏幕授权「运动与方向」权限。
+  </p>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ================= 元素 ================= */
+  var stage = document.querySelector('.stage');
+  var d1 = document.getElementById('d1');
+  var d2 = document.getElementById('d2');
+  var n1 = document.getElementById('n1');
+  var n2 = document.getElementById('n2');
+  var hint = document.getElementById('hint');
+  var gear = document.getElementById('gear');
+  var mask = document.getElementById('mask');
+  var sheet = document.getElementById('sheet');
+  var doneBtn = document.getElementById('doneBtn');
+  var durRange = document.getElementById('durRange');
+  var durVal = document.getElementById('durVal');
+  var senRange = document.getElementById('senRange');
+  var senVal = document.getElementById('senVal');
+  var toast = document.getElementById('toast');
+
+  /* ================= 状态 ================= */
+  var state = 'idle';
+  var duration = 3000;
+  var sensitivity = 6;
+  var spinStart = 0;
+
+  var digits = [
+    { el: d1, numEl: n1, lastSwitch: 0, dur: 0, done: false, delay: 0   },
+    { el: d2, numEl: n2, lastSwitch: 0, dur: 0, done: false, delay: 240 }
+  ];
+
+  /* ================= 工具 ================= */
+  function randDigit() {
+    return 1 + Math.floor(Math.random() * 9);
+  }
+
+  function setDigit(d, v) {
+    d.numEl.textContent = String(v);
+  }
+
+  function setHint(text, active) {
+    hint.textContent = text;
+    hint.classList.toggle('active', !!active);
+  }
+
+  var toastTimer = null;
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () {
+      toast.classList.remove('show');
+    }, 1800);
+  }
+
+  /* ================= 自适应字号 + 纵向拉伸 ================= */
+  function fitFont() {
+    var rect = stage.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    var gap = Math.max(8, rect.width * 0.025);
+    var cellW = (rect.width - gap) / 2 - 10;
+    var cellH = rect.height - 8;
+
+    var size = cellW / 0.60;
+    if (size < 40) size = 40;
+
+    var naturalH = size * 0.72;
+    var scaleY = cellH / naturalH;
+
+    // ★ 拉伸上限：1.8（比之前 2.8 短一截）
+    if (scaleY < 1.0) scaleY = 1.0;
+    if (scaleY > 1.8) scaleY = 1.8;
+
+    var sy = scaleY.toFixed(3);
+
+    digits.forEach(function (d) {
+      d.numEl.style.fontSize = size + 'px';
+      d.numEl.style.setProperty('--sy', sy);
+    });
+  }
+
+  /* ================= 摇号流程 ================= */
+  function startSpin() {
+    if (state === 'spinning') return;
+
+    state = 'spinning';
+    spinStart = performance.now();
+
+    digits.forEach(function (d) {
+      d.lastSwitch = 0;
+      d.done = false;
+      d.dur = duration + d.delay;
+      d.el.classList.remove('done');
+      d.el.classList.add('spinning');
+      d.numEl.classList.remove('pop');
+      setDigit(d, randDigit());
+    });
+
+    setHint('摇一摇 提前停止', true);
+    requestAnimationFrame(loop);
+  }
+
+  function stopEarly() {
+    if (state !== 'spinning') return;
+    var elapsed = performance.now() - spinStart;
+    digits.forEach(function (d, i) {
+      d.dur = elapsed + 460 + i * 220;
+    });
+    setHint('正在停止…', true);
+  }
+
+  function finish() {
+    state = 'idle';
+
+    digits.forEach(function (d) {
+      d.el.classList.remove('spinning');
+      d.el.classList.add('done');
+      d.numEl.classList.add('pop');
+      (function (el) {
+        setTimeout(function () { el.classList.remove('pop'); }, 540);
+      })(d.numEl);
+    });
+
+    setHint('摇一摇 再来一次', true);
+  }
+
+  function loop(now) {
+    if (state !== 'spinning') return;
+
+    var base = now - spinStart;
+    var allDone = true;
+
+    for (var i = 0; i < digits.length; i++) {
+      var d = digits[i];
+      if (d.done) continue;
+
+      var p = base / d.dur;
+      if (p >= 1) {
+        d.done = true;
+        continue;
+      }
+
+      allDone = false;
+
+      var interval = 38 + 700 * Math.pow(p, 4.4);
+
+      if (now - d.lastSwitch >= interval) {
+        d.lastSwitch = now;
+        setDigit(d, randDigit());
+      }
+    }
+
+    if (allDone) {
+      finish();
+      return;
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+  /* ================= 触发入口 ================= */
+  function trigger() {
+    if (state === 'idle') {
+      startSpin();
+    } else if (state === 'spinning') {
+      stopEarly();
+    }
+  }
+
+  /* ================= 摇一摇检测 ================= */
+  var motionReady = false;
+  var lastAx = null, lastAy = null, lastAz = null;
+  var lastShakeAt = 0;
+
+  function onMotion(e) {
+    var a = e.accelerationIncludingGravity;
+    if (!a || a.x === null || a.y === null || a.z === null) return;
+
+    if (lastAx === null) {
+      lastAx = a.x; lastAy = a.y; lastAz = a.z;
+      return;
+    }
+
+    var dx = Math.abs(a.x - lastAx);
+    var dy = Math.abs(a.y - lastAy);
+    var dz = Math.abs(a.z - lastAz);
+
+    lastAx = a.x; lastAy = a.y; lastAz = a.z;
+
+    var delta = dx + dy + dz;
+    var now = performance.now();
+
+    var threshold = 50 - sensitivity * 4;
+
+    if (delta > threshold && now - lastShakeAt > 850) {
+      lastShakeAt = now;
+      trigger();
+    }
+  }
+
+  function attachMotion() {
+    if (motionReady) return;
+    motionReady = true;
+    window.addEventListener('devicemotion', onMotion, false);
+    setHint('摇一摇 开始摇号', true);
+  }
+
+  function autoSetup() {
+    if (typeof DeviceMotionEvent === 'undefined') {
+      setHint('当前设备不支持摇一摇');
+      return;
+    }
+    if (typeof DeviceMotionEvent.requestPermission !== 'function') {
+      attachMotion();
+    }
+  }
+
+  document.addEventListener('pointerdown', function () {
+    if (motionReady) return;
+    if (typeof DeviceMotionEvent === 'undefined') return;
+
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+      DeviceMotionEvent.requestPermission().then(function (res) {
+        if (res === 'granted') {
+          attachMotion();
+          showToast('摇一摇已开启');
+        } else {
+          setHint('未授权 无法使用摇一摇');
+        }
+      }).catch(function () {
+        setHint('授权失败 请刷新重试');
+      });
+    } else {
+      attachMotion();
+    }
+  }, false);
+
+  /* ================= 设置面板 ================= */
+  function openSheet() {
+    mask.classList.add('show');
+    sheet.classList.add('show');
+  }
+  function closeSheet() {
+    mask.classList.remove('show');
+    sheet.classList.remove('show');
+  }
+
+  gear.addEventListener('click', openSheet, false);
+  doneBtn.addEventListener('click', closeSheet, false);
+  mask.addEventListener('click', closeSheet, false);
+
+  durRange.addEventListener('input', function () {
+    duration = parseFloat(durRange.value) * 1000;
+    durVal.textContent = parseFloat(durRange.value).toFixed(1) + 's';
+  }, false);
+
+  senRange.addEventListener('input', function () {
+    sensitivity = parseInt(senRange.value, 10);
+    senVal.textContent = senRange.value;
+  }, false);
+
+  /* ================= 桌面调试：空格键 ================= */
+  window.addEventListener('keydown', function (e) {
+    if (e.code === 'Space' || e.key === ' ') {
+      e.preventDefault();
+      trigger();
+    }
+  }, false);
+
+  document.addEventListener('dblclick', function (e) { e.preventDefault(); }, false);
+  document.addEventListener('contextmenu', function (e) { e.preventDefault(); }, false);
+
+  /* ================= 尺寸自适应 ================= */
+  var rzTimer = null;
+  function onResize() {
+    clearTimeout(rzTimer);
+    rzTimer = setTimeout(fitFont, 80);
+  }
+
+  window.addEventListener('resize', onResize, false);
+  window.addEventListener('orientationchange', function () {
+    setTimeout(fitFont, 220);
+    setTimeout(fitFont, 560);
+  }, false);
+
+  if (window.ResizeObserver) {
+    try {
+      new ResizeObserver(function () { fitFont(); }).observe(stage);
+    } catch (e) {}
+  }
+
+  /* ================= 动态生成图标 + PWA Manifest ================= */
+  function makeIcon(size) {
+    var c = document.createElement('canvas');
+    c.width = c.height = size;
+    var g = c.getContext('2d');
+
+    // 背景渐变
+    var grd = g.createLinearGradient(0, 0, 0, size);
+    grd.addColorStop(0, '#16294a');
+    grd.addColorStop(1, '#070d17');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, size, size);
+
+    // 圆角遮罩（用圆角矩形裁切）
+    var r = size * 0.22;
+    g.globalCompositeOperation = 'destination-in';
+    g.beginPath();
+    g.moveTo(r, 0);
+    g.lineTo(size - r, 0);
+    g.quadraticCurveTo(size, 0, size, r);
+    g.lineTo(size, size - r);
+    g.quadraticCurveTo(size, size, size - r, size);
+    g.lineTo(r, size);
+    g.quadraticCurveTo(0, size, 0, size - r);
+    g.lineTo(0, r);
+    g.quadraticCurveTo(0, 0, r, 0);
+    g.closePath();
+    g.fill();
+    g.globalCompositeOperation = 'source-over';
+
+    // 两个问号样式
+    g.fillStyle = '#54d2ff';
+    g.font = '800 ' + (size * 0.55) + 'px "DIN Alternate",sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('?', size * 0.32, size * 0.54);
+    g.fillText('?', size * 0.68, size * 0.54);
+
+    return c.toDataURL('image/png');
+  }
+
+  function setupPWA() {
+    try {
+      var icon192 = makeIcon(192);
+      var icon512 = makeIcon(512);
+
+      // 动态插入 apple-touch-icon
+      var apple = document.createElement('link');
+      apple.rel = 'apple-touch-icon';
+      apple.href = icon192;
+      document.head.appendChild(apple);
+
+      var fav = document.createElement('link');
+      fav.rel = 'icon';
+      fav.href = icon192;
+      document.head.appendChild(fav);
+
+      // 动态生成 manifest
+      var manifest = {
+        name: '摇一摇随机数',
+        short_name: '摇一摇',
+        description: '晃动手机，随机生成两个 1~9 的数字',
+        start_url: '.',
+        scope: '.',
+        display: 'standalone',
+        orientation: 'portrait',
+        background_color: '#0a1220',
+        theme_color: '#0a1220',
+        icons: [
+          { src: icon192, sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+          { src: icon512, sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+        ]
+      };
+
+      var blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      document.getElementById('manifestLink').href = url;
+    } catch (e) {
+      // 某些老浏览器不支持 canvas.toDataURL 或 Blob，忽略即可
+    }
+  }
+
+  /* ================= 初始化 ================= */
+  setDigit(digits[0], randDigit());
+  setDigit(digits[1], randDigit());
+
+  fitFont();
+  setTimeout(fitFont, 120);
+
+  autoSetup();
+  setupPWA();
+
+})();
+</script>
+</body>
+</html>
